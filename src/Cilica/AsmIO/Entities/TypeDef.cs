@@ -35,7 +35,50 @@ public abstract class TypeDefOrSpec : TypeDesc, ModuleEntity
 
     public virtual IList<CustomAttrib> GetCustomAttribs(bool readOnly = true)
         => Definition.GetCustomAttribs(readOnly);
-    
+
+    /// <summary> Whether this type is marked as a closed type, as introduced by C# 15. </summary>
+    /// <remarks>
+    /// Closed types are an abstraction over ordinary types rather than a new kind of type: the compiler
+    /// only emits <c>[IsClosedType]</c> on the type itself. Reading and writing this property is therefore
+    /// a plain custom attribute access and needs no dedicated <see cref="TypeKind"/>.
+    /// <para>
+    /// Setting the property to <see langword="true"/> adds the attribute, setting it to
+    /// <see langword="false"/> removes it. The attribute is written to the type definition, so
+    /// setting it on a <see cref="TypeSpec"/> affects the generic definition.
+    /// </para>
+    /// <para>
+    /// Since <c>System.Runtime.CompilerServices.IsClosedTypeAttribute</c> only exists from .NET 11 on,
+    /// enabling the flag throws an <see cref="InvalidOperationException"/> when the attribute cannot be
+    /// resolved. Note that the C# compiler additionally expects
+    /// <c>[CompilerFeatureRequired("ClosedClasses")]</c> on the constructors of a closed type; this
+    /// property intentionally only manages the annotation on the type itself.
+    /// </para>
+    /// </remarks>
+    public bool IsClosed {
+        get => GetCustomAttribs().Find(TypeUtils.CompilerServicesNs, TypeUtils.IsClosedAttribName) != null;
+        set {
+            var attribs = GetCustomAttribs(readOnly: false);
+            var existing = attribs.Find(TypeUtils.CompilerServicesNs, TypeUtils.IsClosedAttribName);
+
+            if (value == (existing != null)) {
+                return;
+            }
+
+            if (value) {
+                attribs.Add(new CustomAttrib(GetIsClosedAttribCtor()));
+            } else {
+                attribs.Remove(existing!);
+            }
+        }
+    }
+
+    private MethodDesc GetIsClosedAttribCtor()
+    {
+        return Module.Resolver.WellKnown.IsClosedTypeAttributeCtor ?? throw new InvalidOperationException(
+            $"Cannot mark '{this}' as closed because '{TypeUtils.IsClosedAttribFullName}' is not available in the " +
+            "resolved framework. Closed types require .NET 11 or later.");
+    }
+
     public override int GetHashCode() => HashCode.Combine(Module, Name);
 }
 
