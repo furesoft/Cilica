@@ -64,6 +64,13 @@ public class CustomAttribEncodingTests(ModuleResolverFixture fixture)
         // A null array is encoded as a count of -1.
         Check(PrimType.Int32.CreateArray(), null, [0x1D, 0x08], [0xFF, 0xFF, 0xFF, 0xFF]);
 
+        // Boxed values are prefixed with the element type of the value they actually hold.
+        Check(PrimType.Object, 54.0, [0x51, 0x0D], [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4B, 0x40]);
+        Check(PrimType.Object, 550, [0x51, 0x08], [0x26, 0x02, 0x00, 0x00]);
+        Check(PrimType.Object, "hi", [0x51, 0x0E], [0x02, (byte)'h', (byte)'i']);
+        Check(PrimType.Object, SysTypes.Int32, [0x51, 0x50], [0x0C, .. "System.Int32"u8]);
+        Check(PrimType.Object, new byte[] { 1, 2 }, [0x51, 0x1D, 0x05], [0x02, 0x00, 0x00, 0x00, 0x01, 0x02]);
+
         void Check(TypeDesc type, object? value, byte[] elementType, byte[] valueBytes)
         {
             var attrib = new CustomAttrib(ParameterlessCtor,
@@ -90,6 +97,26 @@ public class CustomAttribEncodingTests(ModuleResolverFixture fixture)
             [new CustomAttribProp { Type = fixture.Resolver.Import(typeof(Exception))!, Name = "X", IsField = true, Value = null }]);
 
         Assert.Throws<NotSupportedException>(() => attrib.GetEncodedBlob());
+    }
+
+    [Fact]
+    public void BoxedNullValuesThrow()
+    {
+        // A boxed value has to carry its own element type, so there is nothing to write for null.
+        Assert.Throws<ArgumentException>(() => EncodeNamedArg(PrimType.Object, null));
+    }
+
+    [Fact]
+    public void ReencodingADecodedBlobReproducesIt()
+    {
+        var type = fixture.Resolver.Resolve("TestAsm")!.FindType(null, "CustomAttribs")!;
+        var original = type.Methods.First(method => method.Name == "DecodeCase1").GetCustomAttribs().First();
+
+        // The original blob covers fixed args, boxed values, 'System.Type', enums and arrays,
+        // so re-encoding it exercises every element type the encoder supports.
+        var reencoded = new CustomAttrib(original.Constructor, original.Args, original.Properties);
+
+        Assert.Equal(original.GetEncodedBlob(), reencoded.GetEncodedBlob());
     }
 
     [Fact]

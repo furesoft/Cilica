@@ -111,12 +111,54 @@ partial class CustomAttrib
             case TypeKind.Double: writer.WriteDouble((double)value!); break;
             case TypeKind.String: writer.WriteSerializedString((string?)value); break;
             // Boxed value
-            case var _ when type == PrimType.Object:
-                // TODO: Encode boxed values, which are prefixed with their own element type.
-                throw new NotImplementedException();
+            case var _ when type == PrimType.Object: {
+                var actualType = GetSerializedTypeOfValue(value);
+                EncodeElementType(writer, actualType);
+                EncodeElement(writer, actualType, value);
+                break;
+            }
 
             default: throw new NotSupportedException();
         }
+    }
+
+    /// <summary>
+    /// Gets the type that a value boxed into a <see cref="SerializationTypeCode.TaggedObject"/> slot is serialized as.
+    /// </summary>
+    private TypeDesc GetSerializedTypeOfValue(object? value)
+    {
+        return value switch {
+            // A boxed null has no type to tag it with, so it cannot be represented.
+            null => throw new ArgumentException("A boxed 'System.Object' argument cannot be null.", nameof(value)),
+            TypeDesc => ParentModule.Resolver.SysTypes.Type,
+            _ => GetSerializedTypeOfClrType(value.GetType())
+        };
+    }
+
+    private TypeDesc GetSerializedTypeOfClrType(System.Type type)
+    {
+        if (type.IsArray) {
+            return GetSerializedTypeOfClrType(type.GetElementType()!).CreateArray();
+        }
+        if (type == typeof(System.Type)) {
+            return ParentModule.Resolver.SysTypes.Type;
+        }
+        return System.Type.GetTypeCode(type) switch {
+            TypeCode.Boolean => PrimType.Bool,
+            TypeCode.Char    => PrimType.Char,
+            TypeCode.SByte   => PrimType.SByte,
+            TypeCode.Byte    => PrimType.Byte,
+            TypeCode.Int16   => PrimType.Int16,
+            TypeCode.UInt16  => PrimType.UInt16,
+            TypeCode.Int32   => PrimType.Int32,
+            TypeCode.UInt32  => PrimType.UInt32,
+            TypeCode.Int64   => PrimType.Int64,
+            TypeCode.UInt64  => PrimType.UInt64,
+            TypeCode.Single  => PrimType.Single,
+            TypeCode.Double  => PrimType.Double,
+            TypeCode.String  => PrimType.String,
+            _ => throw new ArgumentException($"Cannot encode a boxed value of type '{type}'.", nameof(type))
+        };
     }
 
     private static bool IsSystemType(TypeDesc type)
