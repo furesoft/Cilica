@@ -69,7 +69,9 @@ public class PresizeLists : IMethodPass
                         builder.CreateConvert(wide, PrimType.Int32), ConstInt.CreateI(0));
                 }
 
-                var ctorWithCap = list.ResultType.FindMethod(".ctor", new MethodSig(PrimType.Void, [PrimType.Int32]));
+                var ctorWithCap = ctx.Compilation.Resolver.WellKnown
+                    .GetMethod(list.ResultType, ".ctor", new MethodSig(PrimType.Void, [PrimType.Int32]))
+                    ?? throw new InvalidOperationException($"Could not find method '.ctor' in type '{list.ResultType.Name}'.");
                 var newList = builder.CreateNewObj(ctorWithCap, numAddedItems);
                 ctx.Logger.Trace($"Presized '{listAlloc}' in '{listAlloc.Block}' to capacity '{numAddedItems}' for loop '{loop.Header}'.");
                 listAlloc.ReplaceWith(newList);

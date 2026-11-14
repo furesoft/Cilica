@@ -128,7 +128,8 @@ internal sealed class VectorTranslator
     public Value EmitHardwareCheck(IRBuilder builder, int bitWidth)
     {
         var type = _resolver.CoreLib.FindType("System.Runtime.Intrinsics", "Vector" + bitWidth, throwIfNotFound: true);
-        var method = type.FindMethod("get_IsHardwareAccelerated", new MethodSig(PrimType.Bool, []));
+        var method = _resolver.WellKnown.GetMethod(type, "get_IsHardwareAccelerated", new MethodSig(PrimType.Bool, []))
+            ?? throw new InvalidOperationException($"Could not find 'get_IsHardwareAccelerated' in type '{type.Name}'.");
 
         return builder.CreateCall(method);
     }

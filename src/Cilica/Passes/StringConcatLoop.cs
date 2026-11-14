@@ -33,15 +33,15 @@ public class StringConcatLoop : IMethodPass
 {
     public MethodPassResult Run(MethodTransformContext ctx)
     {
-        var resolver = ctx.Compilation.Resolver;
-        if (resolver.FindType("System.Text.StringBuilder") is not TypeDef sbType) {
+        var wellKnown = ctx.Compilation.Resolver.WellKnown;
+        if (wellKnown.StringBuilder == null) {
             return MethodInvalidations.None;
         }
 
-        var ctor = sbType.FindMethod(".ctor", new MethodSig(PrimType.Void, [PrimType.String]), throwIfNotFound: false);
-        var appendStr = sbType.FindMethod("Append", new MethodSig(sbType, [PrimType.String]), throwIfNotFound: false);
-        var appendChar = sbType.FindMethod("Append", new MethodSig(sbType, [PrimType.Char]), throwIfNotFound: false);
-        var toString = sbType.FindMethod("ToString", new MethodSig(PrimType.String, []), throwIfNotFound: false);
+        var ctor = wellKnown.StringBuilderCtor;
+        var appendStr = wellKnown.StringBuilderAppendString;
+        var appendChar = wellKnown.StringBuilderAppendChar;
+        var toString = wellKnown.StringBuilderToString;
         if (ctor == null || appendStr == null || toString == null) {
             return MethodInvalidations.None;
         }
