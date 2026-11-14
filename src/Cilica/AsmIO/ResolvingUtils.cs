@@ -11,7 +11,7 @@ public static class ResolvingUtils
     /// <returns></returns>
     public static MethodDesc? FindMethod(this ModuleResolver resolver, string selector)
     {
-        var convertedSelector = GetSelector(resolver, selector);
+        var convertedSelector = resolver.GetSelectorCached(selector);
         if (resolver.FunctionCache.TryGetValue(convertedSelector, out MethodDesc? cachedMethod)) {
             return cachedMethod;
         }
@@ -32,18 +32,23 @@ public static class ResolvingUtils
     /// <returns></returns>
     public static MethodDesc? FindMethod(this ModuleResolver resolver, string selector, IEnumerable<Value> values)
     {
-        var convertedSelector = GetSelector(resolver, selector);
-        convertedSelector.ParameterTypes.AddRange(values.Select(value => value.ResultType));
+        var convertedSelector = resolver.GetSelectorCached(selector);
 
-        if (resolver.FunctionCache.TryGetValue(convertedSelector, out MethodDesc? cachedMethod)) {
+        // The parsed selector is shared through the cache, so it must not be mutated here. Instead, a
+        // dedicated key is created that combines the selector's parameters with the argument types.
+        var callSelector = convertedSelector with {
+            ParameterTypes = [.. convertedSelector.ParameterTypes, .. values.Select(value => (TypeDesc?)value.ResultType)]
+        };
+
+        if (resolver.FunctionCache.TryGetValue(callSelector, out MethodDesc? cachedMethod)) {
             return cachedMethod;
         }
 
-        if (convertedSelector.Type == null) {
+        if (callSelector.Type == null) {
             return null;
         }
 
-        return ResolveMethod(resolver, convertedSelector, convertedSelector);
+        return ResolveMethod(resolver, callSelector, callSelector);
     }
 
     private static MethodDesc? ResolveMethod(ModuleResolver resolver, MethodSelector selector, MethodSelector convertedSelector)
@@ -68,6 +73,27 @@ public static class ResolvingUtils
         }
 
         return methods.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Returns the parsed selector, reusing a previously parsed instance when possible. Parsing a
+    /// selector resolves every type name it mentions, which is expensive enough to be worth caching.
+    /// </summary>
+    private static MethodSelector GetSelectorCached(this ModuleResolver resolver, string selector)
+    {
+        if (resolver.SelectorCache.TryGetValue(selector, out var cached)) {
+            return cached;
+        }
+
+        var parsed = GetSelector(resolver, selector);
+
+        // Only cache fully resolved selectors: an unresolved type may become available once another
+        // module has been loaded, so failures have to stay retryable.
+        if (parsed.Type != null && parsed.ParameterTypes.All(type => type != null)) {
+            resolver.SelectorCache.Add(selector, parsed);
+        }
+
+        return parsed;
     }
 
     private static MethodSelector GetSelector(this ModuleResolver resolver, string selector)
@@ -162,6 +188,7 @@ public static class ResolvingUtils
             return other != null 
                    && MethodName.Equals(other.MethodName)
                    && Type == other.Type
+                   && ReturnType == other.ReturnType
                    && ParameterTypes.SequenceEqual(other.ParameterTypes);
         }
     }

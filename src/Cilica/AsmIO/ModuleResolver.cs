@@ -12,6 +12,7 @@ public class ModuleResolver : IDisposable
     internal readonly Dictionary<string, ModuleDef> _cache = new(StringComparer.OrdinalIgnoreCase);
     internal readonly Dictionary<ResolvingUtils.MethodSelector, MethodDesc> FunctionCache = new();
     internal readonly Dictionary<string, TypeDefOrSpec> TypeCache = new();
+    internal readonly Dictionary<string, ResolvingUtils.MethodSelector> SelectorCache = new(StringComparer.Ordinal);
 
     private string[] _searchPaths = [];
     internal readonly ICompilationLogger? _logger;
@@ -24,6 +25,10 @@ public class ModuleResolver : IDisposable
 
     public SystemTypes SysTypes => _sysTypes ??= new(CoreLib);
     private SystemTypes? _sysTypes;
+
+    /// <summary> Cached references to commonly used framework types and members. </summary>
+    public WellKnownTypes WellKnown => _wellKnown ??= new(this);
+    private WellKnownTypes? _wellKnown;
 
     public ModuleResolver(ICompilationLogger? logger = null)
     {
@@ -187,6 +192,9 @@ public class ModuleResolver : IDisposable
     private void AddToCache(string name, ModuleDef module)
     {
         _cache.Add(name, module);
+
+        // A new module may contain types that previous lookups failed to find.
+        _wellKnown?.Invalidate();
     }
     
     public void Dispose()
@@ -205,7 +213,9 @@ public class ModuleResolver : IDisposable
         _paths.Clear();
         TypeCache.Clear();
         FunctionCache.Clear();
+        SelectorCache.Clear();
         _coreLib = null;
         _sysTypes = null;
+        _wellKnown = null;
     }
 }

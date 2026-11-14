@@ -53,9 +53,88 @@ public static class TypeUtils
     /// <remarks> This method compares by names, generic instantiations are not considered. </remarks>
     public static bool IsCorelibType(this TypeDesc desc, Type rtType)
     {
+        return desc.IsCorelibType(rtType.Namespace, rtType.Name);
+    }
+
+    /// <summary> Checks if this type is a CoreLib type with the given namespace and name. </summary>
+    /// <remarks>
+    /// This overload exists for types that cannot be referenced through <see cref="Type"/> because they
+    /// are not available in the runtime Cilica is compiled against, such as the union and closed-type
+    /// support types introduced in .NET 11.
+    /// </remarks>
+    public static bool IsCorelibType(this TypeDesc desc, string? ns, string name)
+    {
         return desc.IsCorelibType() &&
-               desc.Name == rtType.Name &&
-               desc.Namespace == rtType.Namespace;
+               desc.Name == name &&
+               desc.Namespace == ns;
+    }
+
+    /// <summary> The namespace of compiler-support types recognized by the C# compiler. </summary>
+    internal const string CompilerServicesNs = "System.Runtime.CompilerServices";
+
+    internal const string IsClosedAttribName = "IsClosedTypeAttribute";
+    internal const string UnionAttribName = "UnionAttribute";
+    internal const string UnionInterfaceName = "IUnion";
+
+    internal const string IsClosedAttribFullName = CompilerServicesNs + "." + IsClosedAttribName;
+    internal const string UnionAttribFullName = CompilerServicesNs + "." + UnionAttribName;
+    internal const string UnionInterfaceFullName = CompilerServicesNs + "." + UnionInterfaceName;
+
+    /// <summary> Whether this type is a union type as introduced by C# 15. </summary>
+    /// <remarks>
+    /// Union types are an abstraction over ordinary types rather than a new kind of type: the compiler
+    /// emits a regular class or struct that is annotated with <c>[Union]</c> and implements <c>IUnion</c>.
+    /// Detecting them therefore only requires attribute and interface checks and needs no dedicated
+    /// <see cref="TypeKind"/>.
+    /// <para>
+    /// Neither support type exists before .NET 11, so this always returns <see langword="false"/> for
+    /// earlier frameworks. The interface check is kept as a fallback for types that inherit the
+    /// annotation from a base type.
+    /// </para>
+    /// </remarks>
+    public static bool IsUnion(this TypeDesc type)
+    {
+        return type is TypeDefOrSpec def &&
+               (def.HasCustomAttrib(CompilerServicesNs, UnionAttribName) ||
+                def.Interfaces.Any(itf => itf.IsCorelibType(CompilerServicesNs, UnionInterfaceName)));
+    }
+
+    /// <summary> Returns the case types of a union type, as exposed by its implicit conversions. </summary>
+    /// <remarks>
+    /// A union case is a type the union can be constructed from, which the compiler models either as a
+    /// single-parameter constructor or as a <c>op_Implicit</c> operator returning the union. The union
+    /// itself is excluded, since a union is never a case of itself.
+    /// </remarks>
+    /// <returns> The distinct case types, in declaration order. Empty if this is not a union. </returns>
+    public static IReadOnlyList<TypeDesc> GetUnionCases(this TypeDesc type)
+    {
+        if (type is not TypeDefOrSpec def || !def.IsUnion()) {
+            return [];
+        }
+
+        List<TypeDesc> cases = [];
+
+        foreach (var method in def.Methods) {
+            if (method.IsStatic) {
+                // Additional cases are exposed as implicit conversions *from* the case type, which are
+                // static and therefore have no instance parameter.
+                if (method.Name == "op_Implicit" && method.ReturnType == def && method.ParamSig.Count == 1) {
+                    AddCase(method.ParamSig[0].Type);
+                }
+            } else if (method.IsConstructor && method.ParamSig.Count == 2) {
+                // Instance constructors carry the instance parameter in front of the case value.
+                AddCase(method.ParamSig[1].Type);
+            }
+        }
+
+        return cases;
+
+        void AddCase(TypeDesc caseType)
+        {
+            if (caseType != def && !cases.Any(existing => existing == caseType)) {
+                cases.Add(caseType);
+            }
+        }
     }
 
     /// <summary> Whether this type represents a primitive integer (byte, int, long, etc.). </summary>
