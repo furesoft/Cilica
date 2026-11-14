@@ -19,20 +19,22 @@
   - [Pre-size Lists / Array Builder Opts](#pre-size-lists--array-builder-opts)
     - [Example](#example-1)
     - [Benchmarks](#benchmarks-2)
-  - [Scalar Replacement](#scalar-replacement)
+  - [String Concatenation in Loops](#string-concatenation-in-loops)
     - [Example](#example-2)
-  - [Reflection Folding](#reflection-folding)
+  - [Scalar Replacement](#scalar-replacement)
     - [Example](#example-3)
+  - [Reflection Folding](#reflection-folding)
+    - [Example](#example-4)
   - [Algebraic Simplification](#algebraic-simplification)
     - [Bitwise expressions](#bitwise-expressions)
   - [Common Sub-expression Elimination](#common-sub-expression-elimination)
-    - [Example](#example-4)
-  - [Assertion Propagation](#assertion-propagation)
     - [Example](#example-5)
-  - [Devirtualization](#devirtualization)
+  - [Assertion Propagation](#assertion-propagation)
     - [Example](#example-6)
-  - [Method Inlining](#method-inlining)
+  - [Devirtualization](#devirtualization)
     - [Example](#example-7)
+  - [Method Inlining](#method-inlining)
+    - [Example](#example-8)
     - [Inlining policy](#inlining-policy)
   - [Pipeline and Compiler Benchmarks](#pipeline-and-compiler-benchmarks)
 
@@ -503,6 +505,49 @@ An `IReadOnlyList<T>` parameter alone does not establish the same contract: its 
 |                    |                    |       |              |            |            |       |         |        |        |           |             |
 | DynamicList_Enumer | .NET 10.0          | 1024  | 1,323.260 ns | 13.2535 ns |  7.8869 ns |  1.00 |    0.01 | 0.7948 | 0.0132 |   12544 B |        1.00 |
 | DynamicList_Enumer | .NET 10.0 + Cilica | 1024  | 1,351.125 ns | 17.7084 ns | 11.7130 ns |  1.02 |    0.01 | 0.7959 | 0.0134 |   12544 B |        1.00 |
+
+## String Concatenation in Loops
+
+Replaces a string accumulator that is rebuilt with `String.Concat` on every iteration with a single `StringBuilder` allocated in the loop pre-header. The quadratic copying and the per-iteration temporary strings disappear, while the number and order of the appends — and therefore the resulting string — stay identical.
+
+### Example
+
+```cs
+public static string Repeat(int count, string item)
+{
+    var text = "";
+
+    for (int i = 0; i < count; i++) {
+        text += item;
+    }
+
+    return text;
+}
+```
+
+The accumulator becomes a builder that is created once and materialized once:
+
+```cs
+public static string Repeat(int count, string item)
+{
+    var builder = new StringBuilder("");
+
+    for (int i = 0; i < count; i++) {
+        builder.Append(item);
+    }
+
+    return builder.ToString();
+}
+```
+
+An appended `char` keeps the `Append(char)` overload, so `text += c` no longer allocates a one-character string.
+
+**Limitations and constraints**
+
+- The concatenation chain must be a straight-line accumulation whose intermediate results are consumed only by the next concatenation.
+- The accumulator may not be observed inside the loop, and every use outside the loop must be dominated by the loop exit.
+- Loops inside a protected region are not rewritten, because a handler could otherwise observe a partially appended builder.
+- Only `string` and `char` operands are supported; other operand types keep their `Concat` calls.
 
 ## Scalar Replacement
 

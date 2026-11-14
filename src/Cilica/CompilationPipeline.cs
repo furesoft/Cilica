@@ -20,6 +20,7 @@ public static class CompilationPipeline
             .IfChanged(child => child.Apply<SsaPromotion>().Apply<Devirtualize>().Apply<InlineMethods>()).RepeatUntilFixedPoint(3);
         var simplify = manager.AddPasses().Apply<SimplifyInsts>().Apply<FoldReflection>().Apply<SimplifyCFG>().Apply<DeadCodeElim>()
             .RepeatUntilFixedPoint(3);
+        manager.AddPasses().Apply<StringConcatLoop>().IfChanged(simplify);
         manager.AddPasses().Apply<ValueNumbering>().Apply<AssertionProp>().Apply<PresizeLists>().Apply<LoopStrengthReduction>().IfChanged(simplify);
         manager.AddPasses().Apply<LoopVectorizer>().IfChanged(simplify);
         // Runs last: a tail call prevents inlining, so every inlining opportunity must be exhausted first.
