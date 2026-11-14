@@ -1,5 +1,6 @@
 namespace Cilica.Tests.AsmIO;
 
+using System.Text;
 using Cilica.AsmIO;
 
 [Collection("ModuleResolver")]
@@ -89,5 +90,74 @@ public class CustomAttribEncodingTests(ModuleResolverFixture fixture)
             [new CustomAttribProp { Type = fixture.Resolver.Import(typeof(Exception))!, Name = "X", IsField = true, Value = null }]);
 
         Assert.Throws<NotSupportedException>(() => attrib.GetEncodedBlob());
+    }
+
+    [Fact]
+    public void SystemTypeNamedArgEncodesTheTypeName()
+    {
+        Assert.Equal<byte>([
+            0x01, 0x00,                 // prolog
+            0x01, 0x00,                 // named arg count
+            0x53,                       // FIELD_OR_PROP: field
+            0x50,                       // ELEMENT_TYPE_TYPE
+            0x01, (byte)'X',            // name
+            0x0C, .. "System.Int32"u8,  // value: the type name
+        ], EncodeNamedArg(SysTypes.Type, SysTypes.Int32));
+    }
+
+    [Fact]
+    public void SystemTypeArrayNamedArgEncodesEveryTypeName()
+    {
+        Assert.Equal<byte>([
+            0x01, 0x00,                 // prolog
+            0x01, 0x00,                 // named arg count
+            0x53,                       // FIELD_OR_PROP: field
+            0x1D, 0x50,                 // SZARRAY of ELEMENT_TYPE_TYPE
+            0x01, (byte)'X',            // name
+            0x02, 0x00, 0x00, 0x00,     // element count
+            0x0C, .. "System.Int32"u8,
+            0x0D, .. "System.String"u8,
+        ], EncodeNamedArg(SysTypes.Type.CreateArray(), new TypeDesc[] { SysTypes.Int32, SysTypes.String }));
+    }
+
+    [Fact]
+    public void NullSystemTypeNamedArgEncodesAsANullString()
+    {
+        Assert.Equal<byte>([
+            0x01, 0x00,         // prolog
+            0x01, 0x00,         // named arg count
+            0x53,               // FIELD_OR_PROP: field
+            0x50,               // ELEMENT_TYPE_TYPE
+            0x01, (byte)'X',    // name
+            0xFF,               // value: null
+        ], EncodeNamedArg(SysTypes.Type, null));
+    }
+
+    [Fact]
+    public void SystemTypeNamedArgRejectsNonTypeValues()
+    {
+        Assert.Throws<ArgumentException>(() => EncodeNamedArg(SysTypes.Type, 42));
+    }
+
+    [Fact]
+    public void TypeNamesFromOtherAssembliesAreAssemblyQualified()
+    {
+        var blob = EncodeNamedArg(SysTypes.Type, fixture.Resolver.Import(typeof(Outer.Inner))!);
+
+        // The value is the last thing in the blob, so the type name ends it.
+        Assert.EndsWith($"{typeof(Outer.Inner).FullName}, {typeof(Outer).Assembly.GetName().FullName}",
+            Encoding.UTF8.GetString(blob));
+    }
+
+    byte[] EncodeNamedArg(TypeDesc type, object? value)
+        => new CustomAttrib(ParameterlessCtor,
+            default,
+            [new CustomAttribProp { Type = type, Name = "X", IsField = true, Value = value }]).GetEncodedBlob();
+
+    SystemTypes SysTypes => fixture.Resolver.SysTypes;
+
+    public class Outer
+    {
+        public class Inner { }
     }
 }

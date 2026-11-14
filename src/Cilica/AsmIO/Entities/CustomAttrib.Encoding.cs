@@ -85,8 +85,15 @@ partial class CustomAttrib
             return;
         }
         else if (IsSystemType(type)) {
-            // TODO: Encode 'System.Type' arguments, which are stored as a serialized type name.
-            throw new NotImplementedException();
+            // 'System.Type' arguments are stored as the name of the type they refer to.
+            var typeName = value switch {
+                null => null,
+                TypeDesc typeValue => SerializeType(typeValue, ParentModule),
+                _ => throw new ArgumentException(
+                    $"Expected a '{nameof(TypeDesc)}' value for a 'System.Type' argument but got '{value.GetType().Name}'.", nameof(value))
+            };
+            writer.WriteSerializedString(typeName);
+            return;
         }
 #pragma warning disable format
         else switch (type.Kind) {
